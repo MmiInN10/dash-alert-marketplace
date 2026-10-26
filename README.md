@@ -46,8 +46,8 @@
 {
   "home": "집",
   "places": {
-    "집":   { "query": "경기 평택시 ○○로 123" },
-    "회사": { "query": "경기도 부천시 ○○로 7" }
+    "집":   { "query": "경기 평택시 XX로 XXX" },
+    "회사": { "query": "경기도 부천시 XX로 XX" }
   },
   "route_buffer_min": 5,
   "buffer_min": 1
