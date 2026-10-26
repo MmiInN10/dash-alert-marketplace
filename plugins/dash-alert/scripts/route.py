@@ -126,15 +126,17 @@ def route_line(steps, total_min, start, real_first=None):
     return " → ".join(parts) or "🚶 도보 %d분" % total_min
 
 
-def plan_message(dest, arrive_at, now, total_min, steps, buffer_min=5, bus_arrivals=None, bus_buffer_min=1):
+def plan_message(dest, arrive_at, now, total_min, steps, buffer_min=5, bus_arrivals=None, bus_buffer_min=1,
+                 depart_req=None):
     """알림 문구를 만든다. arrive_at 이 있으면 도착 시각을 역산해 run/soon/wait, 없으면 지금 출발(go).
+    depart_req 가 있으면 그 시각 출발로 보고 도착·탑승 시각을 계산한다(arrive_at 과 함께 쓰지 않는다).
 
     arrive_at 이 없고 첫 탑승 수단이 버스일 때 bus_arrivals(실시간 도착까지 남은 초 목록)를 주면,
     승차 지점까지 걷는 시간으로 탈 수 있는 첫 버스를 골라 run(뛰어라)/wait/miss 로 판정한다.
     카톡 메모챗이 200자 제한이라 문구 전체를 그 안에 맞춘다.
     """
     real_first = None
-    if arrive_at is None:
+    if arrive_at is None and depart_req is None:
         depart_at = now
         verdict, head = "go", "[뛰어라] 지금 출발하기"
         if bus_arrivals and first_bus(steps):
@@ -151,7 +153,7 @@ def plan_message(dest, arrive_at, now, total_min, steps, buffer_min=5, bus_arriv
                 else:
                     verdict, head = "wait", "[뛰어라] %s 뒤 출발하기" % fmt_minutes(max(1, slack // 60))
     else:
-        depart_at = arrive_at - timedelta(minutes=total_min + buffer_min)
+        depart_at = depart_req or arrive_at - timedelta(minutes=total_min + buffer_min)
         slack = int((depart_at - now).total_seconds() // 60)
         if slack <= 0:
             depart_at = now  # 이미 지난 출발 시각으로 도착·탑승 시각을 계산하지 않는다
@@ -181,7 +183,7 @@ def expected_bus_matches(fb, expect):
     return bool(fb) and "%s|%s" % (fb.get("number"), fb.get("from")) == expect
 
 
-def parse_arrive(hhmm, now):
+def parse_arrive(hhmm, now):  # --depart 도 같은 규칙(지난 시각이면 내일)을 쓴다
     t = datetime.strptime(hhmm, "%H:%M")
     at = now.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0)
     return at if at > now else at + timedelta(days=1)
@@ -191,6 +193,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--to", required=True, help="도착 장소 (저장된 이름 또는 검색어)")
     ap.add_argument("--arrive", help="도착 목표 시각 HH:MM (없으면 지금 출발 기준)")
+    ap.add_argument("--depart", help="출발 시각 HH:MM (--arrive 와 함께 쓸 수 없음)")
     ap.add_argument("--from", dest="origin", help="출발 장소 (기본: config 의 home)")
     ap.add_argument("--bus-sec", help="첫 버스의 실시간 도착까지 남은 초, 쉼표로 구분 (예: 120,1440)")
     ap.add_argument("--expect-bus", help="실시간 값을 조회한 버스 '번호|정류장'. 지금 경로의 첫 버스와 다르면 실시간 값을 쓰지 않음")
@@ -198,6 +201,9 @@ def main():
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
+    if args.arrive and args.depart:
+        print("--arrive 와 --depart 는 함께 쓸 수 없습니다.", file=sys.stderr)
+        return 2
 
     home = Path(args.home)
     load_env(home / ".env")
@@ -221,7 +227,12 @@ def main():
         return 1
 
     now = datetime.now(KST)
-    arrive_at = parse_arrive(args.arrive, now) if args.arrive else None
+    try:
+        arrive_at = parse_arrive(args.arrive, now) if args.arrive else None
+        depart_req = parse_arrive(args.depart, now) if args.depart else None
+    except ValueError:
+        print("시각은 HH:MM 형식이어야 합니다: %s" % (args.arrive or args.depart), file=sys.stderr)
+        return 2
     try:
         bus_arrivals = [int(x) for x in args.bus_sec.split(",") if x.strip()] if args.bus_sec else None
     except ValueError:
@@ -232,10 +243,10 @@ def main():
     if realtime_ignored:
         bus_arrivals = None  # 재조회로 경로가 달라졌으면 앞서 조회한 버스의 실시간 값을 다른 버스에 적용하지 않는다
     out = plan_message(dest_name, arrive_at, now, info["total_min"], info["steps"],
-                       cfg.get("route_buffer_min", 5), bus_arrivals, cfg.get("buffer_min", 1))
+                       cfg.get("route_buffer_min", 5), bus_arrivals, cfg.get("buffer_min", 1), depart_req)
     if realtime_ignored:
         out["realtime_ignored"] = True
-    if fb and arrive_at is None:
+    if fb and arrive_at is None and depart_req is None:
         out["first_bus"] = {"number": fb["number"], "stop": fb["from"]}  # 실시간 조회가 필요한 첫 버스
     out["steps"] = info["steps"]
     print(json.dumps(out, ensure_ascii=False, indent=2))

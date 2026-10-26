@@ -82,6 +82,30 @@ class PlanMessageTest(unittest.TestCase):
         self.assertIn("도보 7분", r["message"])
 
 
+class DepartReqTest(unittest.TestCase):
+    def plan(self, minutes_from_now):
+        steps = route.summarize(PATH)["steps"]
+        req = NOW + timedelta(minutes=minutes_from_now)
+        return route.plan_message("회사", None, NOW, 40, steps, 5, depart_req=req)
+
+    def test_wait_uses_requested_time_not_now(self):
+        r = self.plan(110)  # 09:50 출발
+        self.assertEqual(r["verdict"], "wait")
+        self.assertEqual(r["depart_at"], "09:50")
+        self.assertIn("[뛰어라] 1시간 50분 뒤(09:50) 출발하기", r["message"])
+        self.assertIn("📍 회사 [10:30 도착]", r["message"])  # 09:50 + 40분. 여유 분은 더하지 않는다
+        self.assertIn("🚌146번 ~09:54 → 🚇2호선 ~10:09", r["message"])
+        self.assertNotIn("늦음", r["message"])
+
+    def test_soon(self):
+        self.assertEqual(self.plan(3)["verdict"], "soon")
+
+    def test_no_realtime_bus_in_depart_mode(self):
+        steps = route.summarize(PATH)["steps"]
+        r = route.plan_message("회사", None, NOW, 40, steps, 5, [10], 1, NOW + timedelta(minutes=60))
+        self.assertIn("🚌146번 ~09:04", r["message"])  # 실시간(~ 없음)으로 바뀌지 않는다
+
+
 class RealtimeBusTest(unittest.TestCase):
     """첫 버스 실시간 도착(초)으로 판정. 도보 4분(240초), 여유 1분(60초) 기준."""
 

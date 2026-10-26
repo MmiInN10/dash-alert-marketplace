@@ -1,7 +1,7 @@
 {
   "name": "dash-alert",
   "description": "도착 장소·시각을 입력하면 버스·지하철 경로와 출발 시각을 계산해 뛰어야 하는지 알려 주고, PlayMCP 카카오톡 메모챗으로 보내는 스킬",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": {
     "name": "MmiInN10"
   }
