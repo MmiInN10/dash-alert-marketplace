@@ -20,7 +20,7 @@
 | 스킬 | `run-now` | 고정 정류장·역의 실시간 도착 조회 (보조 기능, 키 필요) |
 | 스크립트 | `scripts/route.py` | 장소→좌표 변환, 경로 조회, 출발 시각 계산, 알림 문구 생성 |
 | 스크립트 | `scripts/arrivals.py` | 고정 정류장·역 도착 조회와 판정 (`run-now`용) |
-| 스크립트 | `scripts/run_alert.ps1` | 스케줄러가 호출. `claude -p`로 조회·실시간 보정·전송을 수행 |
+| 스크립트 | `scripts/run_alert.ps1` | 스케줄러가 호출. 경로 조회·판정은 직접 하고 `claude -p`는 버스 조회·카톡 전송 도구 호출에만 사용. 전송 성공을 확인하고 실패를 알림 |
 | 훅·에이전트 | 없음 | 현재 기능에 필요하지 않아 만들지 않음 |
 
 ## 3. 사용한 API
@@ -108,10 +108,48 @@
 | `dash-alert-morning` | 평일 06:40 | 집 → 회사 |
 | `dash-alert-evening` | 평일 18:00 | 회사 → 집 |
 
-- 실행: `pwsh -NoProfile -File scripts/run_alert.ps1 -From 집 -To 회사`
-- 흐름: 경로 조회 → 첫 버스 실시간 조회 → 문구 재생성 → 메모챗 전송 (`claude -p --model haiku`)
-- 로그: `~/.commute-alert/logs/alert.log`
+- 실행: `pwsh -NoProfile -File scripts/run_alert.ps1 -From 집 -To 회사` (`-DryRun`을 붙이면 카톡 전송 없이 문구만 출력)
+- 로그: `~/.commute-alert/logs/alert.log` (512KB 초과 시 `alert.log.1`로 교체)
 - 삭제: `Unregister-ScheduledTask -TaskName dash-alert-morning -Confirm:$false`
+
+### 실행 흐름
+
+| 단계 | 담당 | 내용 |
+|------|------|------|
+| 1 | PowerShell → `route.py` | 경로 조회, 판정, 문구 생성 |
+| 2 | `claude -p` (도구 호출만) | 경로의 첫 구간이 버스면 `koreaBus` 도구로 실시간 도착 조회 |
+| 3 | PowerShell → `route.py` | 실시간 값(조회 후 흐른 시간만큼 차감)으로 문구 재생성. 재조회로 첫 버스가 달라지면 실시간 값 폐기 |
+| 4 | `claude -p` (도구 호출만) | 메모챗으로 전송 |
+
+- 2단계와 4단계는 도구 하나만 허용해 외부 텍스트(정류장 이름 등)로 다른 동작이 일어나지 않게 한다. 타임아웃 150초, 예산 상한 0.5달러.
+- `claude -p`는 도구가 실패해도 종료 코드 0으로 끝나므로 성공 여부를 출력 문장이 아니라 도구 호출 기록으로 판정한다. 전송은 "호출 입력이 보낼 문구와 같고 결과가 성공"일 때만 성공으로 본다. 불일치하면 1회 재시도한다.
+- 버스 실시간 조회 실패는 치명적이지 않다. 예상 시각(`~`)으로 문구를 만들어 계속 진행한다.
+
+### 실패 처리
+
+| 상황 | 동작 |
+|------|------|
+| `route.py` 오류, 전송 확인 실패 | 로그에 원인 기록 → 카톡으로 `[뛰어라] 알림 실패: 원인` 전송 → 종료 코드 1 |
+| 카톡 실패 알림도 못 보냄 | 윈도우 알림(풍선)으로 표시 |
+| 작업 스케줄러 | 마지막 실행 결과가 0이 아니면 실패로 보임 |
+
+### 작업 등록 명령 (PowerShell 7)
+
+```powershell
+$pwsh = (Get-Command pwsh).Source
+$script = "<저장소 경로>\plugins\dash-alert\scripts\run_alert.ps1"
+$days = "Monday","Tuesday","Wednesday","Thursday","Friday"
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+foreach ($j in @(@{N="dash-alert-morning";At="06:40";F="집";T="회사"}, @{N="dash-alert-evening";At="18:00";F="회사";T="집"})) {
+  $action = New-ScheduledTaskAction -Execute $pwsh -Argument "-NoProfile -File `"$script`" -From $($j.F) -To $($j.T)"
+  $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $days -At $j.At
+  Register-ScheduledTask -TaskName $j.N -Action $action -Trigger $trigger -Settings $settings -Principal $principal | Out-Null
+}
+```
+
+- 스케줄러가 `python`을 찾을 수 있어야 한다 (Microsoft Store 별칭 스텁이 아닌 실제 설치). 등록 후 `-DryRun`으로 먼저 확인한다.
+- 마켓플레이스로 설치한 경우 스크립트 경로는 버전이 붙은 캐시 폴더일 수 있어, 플러그인을 업데이트하면 작업의 경로를 다시 등록해야 할 수 있다.
 
 ## 7. 설치
 
@@ -140,7 +178,7 @@ Claude Code에서 아래 두 줄을 차례로 입력한다.
 |------|------|
 | 지하철 시각 | 예상값만 제공. 서울 지하철 실시간 API는 서울 구간만 지원 |
 | 버스 실시간 | 경로의 첫 구간이 버스일 때만 반영. 정류장 이름이 겹쳐 후보가 여럿이면 예상값 사용 |
-| 조회 실패 | 오류 시 카톡을 보내지 않고 로그에만 기록 |
+| 실패 알림 | 실패하면 카톡 실패 알림을 보내고, 그것도 안 되면 윈도우 알림 (PC가 꺼져 있으면 알림 자체가 없음) |
 | 공휴일 | 구분하지 않음 (평일 공휴일에도 알림) |
 | 실행 조건 | PC가 켜져 있고 로그인된 상태여야 함. 놓친 실행은 나중에 보충하지 않음 |
 | 폴더 이동 | 프로젝트 폴더를 옮기면 스케줄 작업을 다시 등록해야 함 |
@@ -153,8 +191,8 @@ cd plugins/dash-alert
 python -I -m unittest discover -s tests
 ```
 
-- 판정 경계값, 문구 형식, 200자 제한, 장소 검색 순서, 실시간 버스 판정 등 단위 테스트 30건.
-- 실제 API 호출은 단위 테스트에 포함되지 않는다.
+- 판정 경계값, 문구 형식, 200자 제한, 장소 검색 순서, 실시간 버스 판정, 지각 계산 등 단위 테스트 33건.
+- 실제 API 호출과 `run_alert.ps1`은 단위 테스트에 포함되지 않는다. `-DryRun`으로 실제 조회까지 수동 확인한다.
 
 ## 10. 파일 구성
 
