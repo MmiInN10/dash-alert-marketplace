@@ -122,6 +122,17 @@ class RealtimeBusTest(unittest.TestCase):
         self.assertIsNone(route.first_bus([{"kind": "subway", "name": "x", "minutes": 1}]))
 
 
+class ExpectedBusTest(unittest.TestCase):
+    FB = {"number": "146", "from": "A정류장"}
+
+    def test_cases(self):
+        self.assertTrue(route.expected_bus_matches(self.FB, None))  # 지정 안 하면 통과
+        self.assertTrue(route.expected_bus_matches(self.FB, "146|A정류장"))
+        self.assertFalse(route.expected_bus_matches(self.FB, "146|B정류장"))  # 정류장이 다르면 폐기
+        self.assertFalse(route.expected_bus_matches(self.FB, "9999|A정류장"))  # 번호가 다르면 폐기
+        self.assertFalse(route.expected_bus_matches(None, "146|A정류장"))  # 재조회 경로에 첫 버스가 없으면 폐기
+
+
 class GeocodeTest(unittest.TestCase):
     def setUp(self):
         self._orig_docs, self._orig_key = route._kakao_docs, route.require_key

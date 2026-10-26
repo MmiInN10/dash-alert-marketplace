@@ -174,6 +174,13 @@ def plan_message(dest, arrive_at, now, total_min, steps, buffer_min=5, bus_arriv
     return {"verdict": verdict, "depart_at": depart_at.strftime("%H:%M"), "message": text}
 
 
+def expected_bus_matches(fb, expect):
+    """--expect-bus '번호|정류장' 이 지금 경로의 첫 버스와 같은지. 지정하지 않으면 항상 True."""
+    if not expect:
+        return True
+    return bool(fb) and "%s|%s" % (fb.get("number"), fb.get("from")) == expect
+
+
 def parse_arrive(hhmm, now):
     t = datetime.strptime(hhmm, "%H:%M")
     at = now.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0)
@@ -186,6 +193,7 @@ def main():
     ap.add_argument("--arrive", help="도착 목표 시각 HH:MM (없으면 지금 출발 기준)")
     ap.add_argument("--from", dest="origin", help="출발 장소 (기본: config 의 home)")
     ap.add_argument("--bus-sec", help="첫 버스의 실시간 도착까지 남은 초, 쉼표로 구분 (예: 120,1440)")
+    ap.add_argument("--expect-bus", help="실시간 값을 조회한 버스 '번호|정류장'. 지금 경로의 첫 버스와 다르면 실시간 값을 쓰지 않음")
     ap.add_argument("--home", default=os.environ.get("COMMUTE_ALERT_HOME") or str(Path.home() / ".commute-alert"))
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
@@ -214,10 +222,19 @@ def main():
 
     now = datetime.now(KST)
     arrive_at = parse_arrive(args.arrive, now) if args.arrive else None
-    bus_arrivals = [int(x) for x in args.bus_sec.split(",") if x.strip()] if args.bus_sec else None
+    try:
+        bus_arrivals = [int(x) for x in args.bus_sec.split(",") if x.strip()] if args.bus_sec else None
+    except ValueError:
+        print("--bus-sec 는 쉼표로 구분한 정수여야 합니다: %s" % args.bus_sec, file=sys.stderr)
+        return 2
+    fb = first_bus(info["steps"])
+    realtime_ignored = bool(bus_arrivals) and not expected_bus_matches(fb, args.expect_bus)
+    if realtime_ignored:
+        bus_arrivals = None  # 재조회로 경로가 달라졌으면 앞서 조회한 버스의 실시간 값을 다른 버스에 적용하지 않는다
     out = plan_message(dest_name, arrive_at, now, info["total_min"], info["steps"],
                        cfg.get("route_buffer_min", 5), bus_arrivals, cfg.get("buffer_min", 1))
-    fb = first_bus(info["steps"])
+    if realtime_ignored:
+        out["realtime_ignored"] = True
     if fb and arrive_at is None:
         out["first_bus"] = {"number": fb["number"], "stop": fb["from"]}  # 실시간 조회가 필요한 첫 버스
     out["steps"] = info["steps"]
