@@ -1,0 +1,14 @@
+{
+  "name": "dash-alert-marketplace",
+  "description": "서울·경기 대중교통 경로와 출발 시각을 계산해 '지금 뛰세요'를 터미널과 카카오톡 나와의 채팅으로 알려 주는 플러그인",
+  "owner": {
+    "name": "MmiInN10"
+  },
+  "plugins": [
+    {
+      "name": "dash-alert",
+      "source": "./plugins/dash-alert",
+      "description": "도착 장소·시각을 입력하면 버스·지하철 경로와 출발 시각을 계산해 뛰어야 하는지 알려 주고, PlayMCP 카카오톡 메모챗으로 보내는 스킬"
+    }
+  ]
+}

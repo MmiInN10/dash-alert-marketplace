@@ -1,0 +1,9 @@
+# 비밀키 / 환경변수 / 개인 설정(주소 포함)
+.env
+*.env
+config.json
+
+# 로그 / 파이썬 캐시
+logs/
+__pycache__/
+*.pyc

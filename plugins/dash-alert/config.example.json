@@ -1,0 +1,35 @@
+{
+  "walk_min": 5,
+  "buffer_min": 1,
+  "route_buffer_min": 5,
+  "home": "집",
+  "places": {
+    "집": { "query": "여기에 집 주소나 가까운 역 이름" },
+    "회사": { "query": "여기에 회사 이름이나 주소" }
+  },
+  "targets": [
+    {
+      "type": "subway",
+      "label": "2호선 강남역 내선",
+      "station": "강남",
+      "subway_id": "1002",
+      "direction": "내선",
+      "walk_min": 4
+    },
+    {
+      "type": "seoul_bus",
+      "label": "서울 146번 강남역",
+      "route_id": "100100018",
+      "st_id": "22013",
+      "walk_min": 3
+    },
+    {
+      "type": "gyeonggi_bus",
+      "label": "경기 광역버스",
+      "station_id": "228000704",
+      "route_id": "200000115",
+      "sta_order": "40",
+      "walk_min": 6
+    }
+  ]
+}
